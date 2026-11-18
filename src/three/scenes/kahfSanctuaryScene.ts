@@ -1634,18 +1634,18 @@ export function createKahfSanctuaryScene(
   shadeTreeStage.add(heroOliveTree.group);
   const canopyCrown = heroOliveTree.crownPivot;
 
-  // Sculpted Natural Hillside Stone Seating Ledges (compact boulder placed cleanly behind seated calves)
-  const seatRockGeo = new THREE.CylinderGeometry(0.32, 0.38, 0.4, 10);
+  // Sculpted Natural Hillside Stone Seating Ledges (placed cleanly in front of tree canopy)
+  const seatRockGeo = new THREE.CylinderGeometry(0.42, 0.5, 0.42, 10);
   geometries.push(seatRockGeo);
   const seatConfigs: { x: number; z: number; yaw: number }[] = [
-    { x: -1.42, z: 1.58, yaw: 0.38 },
+    { x: -1.38, z: 1.55, yaw: 0.38 },
     { x: 0.0, z: 2.08, yaw: 0.12 },
-    { x: 1.42, z: 1.55, yaw: -0.38 },
+    { x: 1.38, z: 1.52, yaw: -0.38 },
   ];
   seatConfigs.forEach(({ x, z, yaw }, idx) => {
-    // Center rock 0.22m behind seated hip so torso rests on stone rim while calves & sandals stand clear on grass
-    const sx = x - Math.sin(yaw) * 0.22;
-    const sz = z - Math.cos(yaw) * 0.22;
+    // Shift stone slightly behind hip center so feet rest cleanly on grass in front
+    const sx = x - Math.sin(yaw) * 0.09;
+    const sz = z - Math.cos(yaw) * 0.09;
     const seatStone = new THREE.Mesh(seatRockGeo, cliffStoneMat);
     seatStone.position.set(sx, hillHeightAt(sx, sz) + 0.18, sz);
     seatStone.rotation.y = yaw + idx * 0.4;
@@ -2214,31 +2214,6 @@ export function createKahfSanctuaryScene(
         const z = inv * inv * p0[1] + 2 * inv * p * p1[1] + p * p * p2[1];
         const dx = 2 * inv * (p1[0] - p0[0]) + 2 * p * (p2[0] - p1[0]);
         const dz = 2 * inv * (p1[1] - p0[1]) + 2 * p * (p2[1] - p1[1]);
-        return [x, z, Math.atan2(dx, dz)];
-      };
-
-      const evalCubicArc = (
-        p: number,
-        p0: [number, number],
-        c1: [number, number],
-        c2: [number, number],
-        p3: [number, number],
-      ): [number, number, number] => {
-        const inv = 1 - p;
-        const b0 = inv * inv * inv;
-        const b1 = 3 * inv * inv * p;
-        const b2 = 3 * inv * p * p;
-        const b3 = p * p * p;
-        const x = b0 * p0[0] + b1 * c1[0] + b2 * c2[0] + b3 * p3[0];
-        const z = b0 * p0[1] + b1 * c1[1] + b2 * c2[1] + b3 * p3[1];
-        const dx =
-          3 * inv * inv * (c1[0] - p0[0]) +
-          6 * inv * p * (c2[0] - c1[0]) +
-          3 * p * p * (p3[0] - c2[0]);
-        const dz =
-          3 * inv * inv * (c1[1] - p0[1]) +
-          6 * inv * p * (c2[1] - c1[1]) +
-          3 * p * p * (p3[1] - c2[1]);
         return [x, z, Math.atan2(dx, dz)];
       };
 
@@ -2860,21 +2835,13 @@ export function createKahfSanctuaryScene(
         const seatA = seatConfigs[0];
         const seatL = seatConfigs[1];
         const seatB = seatConfigs[2];
-        // Standing spots strictly in front of each boulder (0.48m ahead of boulder center > 0.38m rock base)
-        const standSpot = (s: { x: number; z: number; yaw: number }): [number, number] => [
-          s.x + Math.sin(s.yaw) * 0.26,
-          s.z + Math.cos(s.yaw) * 0.26,
-        ];
-        const standA = standSpot(seatA);
-        const standL = standSpot(seatL);
-        const standB = standSpot(seatB);
 
         if (time < 55.2) {
-          // 47.3 - 55.2s (includes 0:54 / 54s): Smooth curved walk wide around tree trunk & stone seats to front standing spots
+          // 47.3 - 55.2s: Smooth curved walk around tree trunk
           const p = THREE.MathUtils.smoothstep(time, 47.3, 55.2);
-          const [lx, lz, lyaw] = evalCubicArc(p, [-0.35, -7.2], [-1.9, -1.0], [-3.65, 3.35], standL);
-          const [ax, az, ayaw] = evalArc(p, [-1.4, -7.6], [-3.1, 2.25], standA);
-          const [bx, bz, byaw] = evalArc(p, [1.1, -7.4], [3.1, 2.2], standB);
+          const [lx, lz, lyaw] = evalArc(p, [-0.35, -7.2], [-2.15, -0.6], [seatL.x, seatL.z]);
+          const [ax, az, ayaw] = evalArc(p, [-1.25, -7.8], [-2.65, -0.5], [seatA.x, seatA.z]);
+          const [bx, bz, byaw] = evalArc(p, [0.95, -7.4], [2.25, -0.5], [seatB.x, seatB.z]);
 
           leadTraveler.root.position.set(lx, hillHeightAt(lx, lz) + 0.055, lz);
           leadTraveler.root.rotation.y = lyaw;
@@ -2888,27 +2855,21 @@ export function createKahfSanctuaryScene(
           companionB.root.rotation.y = byaw;
           companionB.setPoseWalk(time * 4.0 + 2.2);
         } else if (time < 91.7) {
-          // 55.2 - 91.7s: Turn forward & ease cleanly back onto each stone ledge before conversing
+          // 55.2 - 91.7s: Seated conversation, declaring "Our Lord is One, Allah" & Hidayah light
           const sitBlend = THREE.MathUtils.smoothstep(time, 55.35, 57.4);
           const turnBlend = THREE.MathUtils.smoothstep(time, 55.2, 56.1);
 
-          const [, , lyaw0] = evalCubicArc(1, [-0.35, -7.2], [-1.9, -1.0], [-3.65, 3.35], standL);
-          const [, , ayaw0] = evalArc(1, [-1.4, -7.6], [-3.1, 2.25], standA);
-          const [, , byaw0] = evalArc(1, [1.1, -7.4], [3.1, 2.2], standB);
+          const [, , lyaw0] = evalArc(1, [-0.35, -7.2], [-2.15, -0.6], [seatL.x, seatL.z]);
+          const [, , ayaw0] = evalArc(1, [-1.25, -7.8], [-2.65, -0.5], [seatA.x, seatA.z]);
+          const [, , byaw0] = evalArc(1, [0.95, -7.4], [2.25, -0.5], [seatB.x, seatB.z]);
 
-          const lx = THREE.MathUtils.lerp(standL[0], seatL.x, sitBlend);
-          const lz = THREE.MathUtils.lerp(standL[1], seatL.z, sitBlend);
-          leadTraveler.root.position.set(lx, hillHeightAt(lx, lz) + THREE.MathUtils.lerp(0.055, 0.02, sitBlend), lz);
+          leadTraveler.root.position.set(seatL.x, hillHeightAt(seatL.x, seatL.z) + 0.02, seatL.z);
           leadTraveler.root.rotation.y = lerpAngle(lyaw0, seatL.yaw, turnBlend);
 
-          const ax = THREE.MathUtils.lerp(standA[0], seatA.x, sitBlend);
-          const az = THREE.MathUtils.lerp(standA[1], seatA.z, sitBlend);
-          companionA.root.position.set(ax, hillHeightAt(ax, az) + THREE.MathUtils.lerp(0.055, 0.02, sitBlend), az);
+          companionA.root.position.set(seatA.x, hillHeightAt(seatA.x, seatA.z) + 0.02, seatA.z);
           companionA.root.rotation.y = lerpAngle(ayaw0, seatA.yaw, turnBlend);
 
-          const bx = THREE.MathUtils.lerp(standB[0], seatB.x, sitBlend);
-          const bz = THREE.MathUtils.lerp(standB[1], seatB.z, sitBlend);
-          companionB.root.position.set(bx, hillHeightAt(bx, bz) + THREE.MathUtils.lerp(0.055, 0.02, sitBlend), bz);
+          companionB.root.position.set(seatB.x, hillHeightAt(seatB.x, seatB.z) + 0.02, seatB.z);
           companionB.root.rotation.y = lerpAngle(byaw0, seatB.yaw, turnBlend);
 
           const glance = Math.sin((time - 57.4) * 0.85) * 0.22 * sitBlend;
@@ -2931,16 +2892,16 @@ export function createKahfSanctuaryScene(
             treeBeamMat.opacity = hidayahGlow * (0.2 + Math.sin(t * 1.4) * 0.03);
           }
         } else if (time < 446.5) {
-          // 423.0 - 446.5s (includes 7:07 / 427s): Lesson 1 & Lesson 2 — Youths stand cleanly on open grass ahead of stone seats
-          leadTraveler.root.position.set(0.0, hillHeightAt(0.0, 2.85) + 0.045, 2.85);
+          // 423.0 - 446.5s: Lesson 1 (Youths standing resolute) & Lesson 2 (Mercy's shade)
+          leadTraveler.root.position.set(0.0, hillHeightAt(0.0, 2.15) + 0.045, 2.15);
           leadTraveler.root.rotation.y = 0.05;
           leadTraveler.setPoseLookout(t);
 
-          companionA.root.position.set(-1.62, hillHeightAt(-1.62, 2.35) + 0.045, 2.35);
+          companionA.root.position.set(-1.35, hillHeightAt(-1.35, 1.75) + 0.045, 1.75);
           companionA.root.rotation.y = 0.22;
           companionA.setPoseLookout(t + 0.4);
 
-          companionB.root.position.set(1.62, hillHeightAt(1.62, 2.35) + 0.045, 2.35);
+          companionB.root.position.set(1.35, hillHeightAt(1.35, 1.75) + 0.045, 1.75);
           companionB.root.rotation.y = -0.22;
           companionB.setPoseLookout(t + 0.8);
 

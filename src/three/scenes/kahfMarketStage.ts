@@ -458,8 +458,8 @@ export function createKahfMarketStage(params: {
   const citizenSpots: [number, number, number][] = [
     [-2.4, 2.4, 0.55],
     [-2.8, 0.4, 1.2],
-    [-2.15, -1.35, 1.85],
-    [2.28, -1.65, -1.9],
+    [-2.5, -1.6, 1.85],
+    [2.7, -2.1, -1.9],
     [-1.8, -3.5, 2.3],
     [1.8, -3.4, -2.3],
     [-2.9, -4.8, 1.9],
@@ -576,12 +576,12 @@ export function createKahfMarketStage(params: {
         citizenHeads.visible = crowdGather;
         citizenVeils.visible = crowdGather;
       } else if (time < 314.8) {
-        // 305.5 - 314.8s: Crowd gathers & youth walks peacefully to stand clearly in front of the Righteous Ruler dais
+        // 305.5 - 314.8s: Crowd gathers & youth walks peacefully toward the Righteous Ruler
         const p = THREE.MathUtils.smoothstep(time, 305.5, 313.5);
-        const lx = THREE.MathUtils.lerp(1.05, -0.42, p);
-        const lz = THREE.MathUtils.lerp(0.62, -3.42, p);
+        const lx = THREE.MathUtils.lerp(1.05, -0.35, p);
+        const lz = THREE.MathUtils.lerp(0.62, -4.15, p);
         leadTraveler.root.position.set(lx, 0.06, lz);
-        leadTraveler.root.rotation.y = Math.PI * 0.92;
+        leadTraveler.root.rotation.y = Math.PI * 0.95;
         if (p < 0.97) {
           leadTraveler.setPoseWalk(time * 4.2);
         } else {
@@ -592,9 +592,9 @@ export function createKahfMarketStage(params: {
         citizenHeads.visible = true;
         citizenVeils.visible = true;
       } else {
-        // 314.8 - 329.5s (includes 5:27 / 327s): Peaceful meeting cleanly in front of ruler dais & mosque skyline
-        leadTraveler.root.position.set(-0.42, 0.06, -3.42);
-        leadTraveler.root.rotation.y = Math.PI * 0.9;
+        // 314.8 - 329.5s: Peaceful meeting before the believing ruler & mosque skyline
+        leadTraveler.root.position.set(-0.35, 0.06, -4.15);
+        leadTraveler.root.rotation.y = Math.PI * 0.92;
         leadTraveler.setPoseLookout(t);
         marketCoin.visible = false;
         citizenBodies.visible = true;

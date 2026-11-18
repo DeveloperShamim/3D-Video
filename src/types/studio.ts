@@ -48,6 +48,34 @@ export interface StudioConfig {
   loop: boolean;
   audioEnabled: boolean;
   fps: 30 | 60;
+  exportResolution: ExportResolutionId;
+  exportMode: ExportModeId;
+}
+
+export type ExportResolutionId = '1080p' | '1440p' | '4k';
+
+/**
+ * 'frame'    = offline frame-by-frame render (WebCodecs → MP4). Every frame is drawn
+ *              fully and encoded at high quality; no dropped frames regardless of GPU speed.
+ * 'realtime' = live MediaRecorder capture while the timeline plays (faster, lower quality).
+ */
+export type ExportModeId = 'frame' | 'realtime';
+
+export const EXPORT_RESOLUTIONS: {
+  id: ExportResolutionId;
+  label: string;
+  width: number;
+  height: number;
+  /** Target video bitrate in bits/s at 30 fps and 60 fps. */
+  bitrate: { 30: number; 60: number };
+}[] = [
+  { id: '1080p', label: '1080p', width: 1920, height: 1080, bitrate: { 30: 20_000_000, 60: 30_000_000 } },
+  { id: '1440p', label: '1440p', width: 2560, height: 1440, bitrate: { 30: 35_000_000, 60: 50_000_000 } },
+  { id: '4k', label: '4K', width: 3840, height: 2160, bitrate: { 30: 60_000_000, 60: 85_000_000 } },
+];
+
+export function getExportResolution(id: ExportResolutionId) {
+  return EXPORT_RESOLUTIONS.find((r) => r.id === id) ?? EXPORT_RESOLUTIONS[0];
 }
 
 export interface RecordedVideo {
@@ -59,6 +87,10 @@ export interface RecordedVideo {
   sizeBytes: number;
   sceneName: string;
   createdAt: number;
+  width?: number;
+  height?: number;
+  /** Set when the frame-by-frame renderer streamed the file straight to disk. */
+  savedFileName?: string;
 }
 
 export const DEFAULT_VO_URL = '/assets/aistudio/ashab_al_kahf_voiceover_0dc03ed0.mp3';

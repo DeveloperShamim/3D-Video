@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {
   CAMERA_SHOTS,
+  EXPORT_RESOLUTIONS,
   LIGHTING_MOODS,
   MATERIAL_FINISHES,
   SCENE_PRESETS,
@@ -567,6 +568,67 @@ export function ControlDock({
                         }`}
                       >
                         {fps} fps
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-medium text-slate-400 mb-1">
+                    Resolution
+                  </div>
+                  <div className="flex items-center gap-1 rounded-lg bg-[#151922] p-0.5 border border-white/10">
+                    {EXPORT_RESOLUTIONS.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        disabled={isRecording}
+                        onClick={() => onUpdateConfig({ exportResolution: r.id })}
+                        title={`${r.width}×${r.height}`}
+                        className={`px-2.5 py-1 text-xs font-mono-tabular rounded-md transition-colors cursor-pointer ${
+                          config.exportResolution === r.id
+                            ? 'bg-slate-700 text-white'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-medium text-slate-400 mb-1">
+                    Export Mode
+                  </div>
+                  <div className="flex items-center gap-1 rounded-lg bg-[#151922] p-0.5 border border-white/10">
+                    {(
+                      [
+                        {
+                          id: 'frame',
+                          label: 'Frame-by-frame',
+                          hint: 'Best quality MP4. Every frame rendered fully on your GPU, no dropped frames.',
+                        },
+                        {
+                          id: 'realtime',
+                          label: 'Live',
+                          hint: 'Records while playing in real time. Faster, but can drop frames.',
+                        },
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        disabled={isRecording}
+                        onClick={() => onUpdateConfig({ exportMode: m.id })}
+                        title={m.hint}
+                        className={`px-2.5 py-1 text-xs rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                          config.exportMode === m.id
+                            ? 'bg-slate-700 text-white'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {m.label}
                       </button>
                     ))}
                   </div>

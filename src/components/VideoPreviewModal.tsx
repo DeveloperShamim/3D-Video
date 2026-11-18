@@ -10,6 +10,9 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) {
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
@@ -32,8 +35,9 @@ export function VideoPreviewModal({ video, onClose }: VideoPreviewModalProps) {
               Rendered 3D Video Ready
             </h2>
             <p className="mt-0.5 text-xs text-slate-400 font-mono-tabular">
-              {video.sceneName} · {video.duration}s · {formatFileSize(video.sizeBytes)} ·{' '}
-              {video.extension.toUpperCase()}
+              {video.sceneName} · {Math.round(video.duration)}s ·{' '}
+              {video.width && video.height ? `${video.width}×${video.height} · ` : ''}
+              {formatFileSize(video.sizeBytes)} · {video.extension.toUpperCase()}
             </p>
           </div>
           <button
@@ -58,8 +62,10 @@ export function VideoPreviewModal({ video, onClose }: VideoPreviewModalProps) {
         </div>
 
         <div className="flex items-center justify-between gap-4 px-5 py-3.5 border-t border-white/10">
-          <span className="text-xs text-slate-400">
-            Captured directly from Three.js WebGL canvas
+          <span className="text-xs text-slate-400 truncate">
+            {video.savedFileName
+              ? `Saved to disk as ${video.savedFileName}`
+              : 'Captured directly from Three.js WebGL canvas'}
           </span>
 
           <div className="flex items-center gap-2.5">
@@ -70,6 +76,7 @@ export function VideoPreviewModal({ video, onClose }: VideoPreviewModalProps) {
             >
               Back to Studio
             </button>
+            {!video.savedFileName && (
             <a
               href={video.url}
               download={fileName}
@@ -78,6 +85,7 @@ export function VideoPreviewModal({ video, onClose }: VideoPreviewModalProps) {
               <Download className="h-3.5 w-3.5" />
               <span>Download Video</span>
             </a>
+            )}
           </div>
         </div>
       </div>

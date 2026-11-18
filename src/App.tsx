@@ -27,6 +27,8 @@ const INITIAL_CONFIG: StudioConfig = {
   loop: true,
   audioEnabled: true,
   fps: 60,
+  exportResolution: '1080p',
+  exportMode: 'frame',
 };
 
 export default function App() {
@@ -42,6 +44,7 @@ export default function App() {
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordingProgress, setRecordingProgress] = useState(0);
+  const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
   const [lastVideo, setLastVideo] = useState<RecordedVideo | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -122,9 +125,10 @@ export default function App() {
   }, []);
 
   const handleRecordingStateChange = useCallback(
-    (recording: boolean, progress: number) => {
+    (recording: boolean, progress: number, status?: string) => {
       setIsRecording(recording);
       setRecordingProgress(progress);
+      setRecordingStatus(recording ? (status ?? null) : null);
     },
     [],
   );
@@ -225,7 +229,7 @@ export default function App() {
 
       {/* Recording Progress Bar Banner */}
       {isRecording && (
-        <div className="pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-20 w-[min(360px,88vw)] rounded-lg border border-amber-500/30 bg-[#0f1218]/95 px-4 py-2.5">
+        <div className="pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-20 w-[min(520px,92vw)] rounded-lg border border-amber-500/30 bg-[#0f1218]/95 px-4 py-2.5">
           <div className="flex items-center justify-between text-xs text-slate-200 mb-1.5">
             <span>
               Rendering{' '}
@@ -245,6 +249,11 @@ export default function App() {
               style={{ width: `${Math.min(100, recordingProgress)}%` }}
             />
           </div>
+          {recordingStatus && (
+            <div className="mt-1.5 text-[11px] text-slate-400 font-mono-tabular truncate">
+              {recordingStatus}
+            </div>
+          )}
         </div>
       )}
 

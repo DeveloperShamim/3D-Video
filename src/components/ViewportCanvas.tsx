@@ -20,6 +20,7 @@ import {
   SCENE_PRESETS,
   ScenePresetId,
   StudioConfig,
+  getExportResolution,
 } from '../types/studio';
 import { createProceduralTextures } from '../three/proceduralTextures';
 import { createStudioMaterialLibrary } from '../three/materials';
@@ -31,6 +32,11 @@ import { createRoverScene } from '../three/scenes/roverScene';
 import { createObservatoryScene } from '../three/scenes/observatoryScene';
 import { VoiceoverAudioEngine } from '../three/audioEngine';
 import { ActiveRecordingSession, startCanvasVideoRecording } from '../three/videoRecorder';
+import {
+  RenderCancelledError,
+  isFrameRenderSupported,
+  renderVideoOffline,
+} from '../three/offlineRenderer';
 import { SrtCue, getActiveCue } from '../utils/srtParser';
 
 export interface ViewportHandle {
@@ -50,7 +56,7 @@ interface ViewportCanvasProps {
   onTimeUpdate: (time: number) => void;
   onPlayingChange: (playing: boolean) => void;
   onCameraManualOverride: () => void;
-  onRecordingStateChange: (recording: boolean, progress: number) => void;
+  onRecordingStateChange: (recording: boolean, progress: number, status?: string) => void;
   onVideoReady: (video: RecordedVideo) => void;
   onVoDurationLoaded: (duration: number) => void;
   onAutoplayBlocked: (blocked: boolean) => void;
@@ -60,6 +66,17 @@ interface ViewportCanvasProps {
 // Pre-allocated math helpers outside render loop (zero GC)
 const _desiredCamPos = new THREE.Vector3();
 const _desiredTarget = new THREE.Vector3();
+
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds)) return '--';
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -130,6 +147,9 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
     const timeRef = useRef(currentTime);
     timeRef.current = currentTime;
 
+    const voUrlRef = useRef(voUrl);
+    voUrlRef.current = voUrl;
+
     const callbacksRef = useRef({
       onTimeUpdate,
       onPlayingChange,
@@ -175,6 +195,13 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
       isRecording: boolean;
       recordElapsed: number;
       renderNow: () => void;
+      /** True while the canvas is locked to a fixed export resolution. */
+      fixedOutputSize: boolean;
+      setOutputSize: (w: number, h: number) => void;
+      restoreViewportSize: () => void;
+      offlineRendering: boolean;
+      offlineCancel: boolean;
+      renderOffline: ((fileHandle: FileSystemFileHandle | null) => Promise<void>) | null;
     }>({
       renderer: null,
       scene: null,
@@ -199,7 +226,45 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
       isRecording: false,
       recordElapsed: 0,
       renderNow: () => {},
+      fixedOutputSize: false,
+      setOutputSize: () => {},
+      restoreViewportSize: () => {},
+      offlineRendering: false,
+      offlineCancel: false,
+      renderOffline: null,
     });
+
+    // Frame-by-frame export: ask where to save first (needs the click's user gesture),
+    // then render offline straight to disk.
+    const startFrameRender = async (cfg: StudioConfig, sceneName: string) => {
+      const rt = runtimeRef.current;
+      if (!rt.renderOffline) return;
+      if (!isFrameRenderSupported()) {
+        callbacksRef.current.onError(
+          'Frame-by-frame export needs Chrome or Edge (WebCodecs). Switch Export Mode to Live.',
+        );
+        return;
+      }
+      const res = getExportResolution(cfg.exportResolution);
+      let handle: FileSystemFileHandle | null = null;
+      const picker = (
+        window as unknown as {
+          showSaveFilePicker?: (opts: unknown) => Promise<FileSystemFileHandle>;
+        }
+      ).showSaveFilePicker;
+      if (picker) {
+        try {
+          handle = await picker.call(window, {
+            suggestedName: `${sceneName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${res.label}-${cfg.fps}fps.mp4`,
+            types: [{ description: 'MP4 video', accept: { 'video/mp4': ['.mp4'] } }],
+          });
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          handle = null;
+        }
+      }
+      await rt.renderOffline(handle);
+    };
 
     // Imperative studio actions
     useImperativeHandle(ref, () => ({
@@ -219,12 +284,19 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
       },
       startRecording: () => {
         const rt = runtimeRef.current;
-        if (!rt.renderer || rt.isRecording) return;
+        if (!rt.renderer || rt.isRecording || rt.offlineRendering) return;
         const cfg = configRef.current;
         const sceneMeta =
           SCENE_PRESETS.find((s) => s.id === cfg.sceneId) ?? SCENE_PRESETS[0];
+        const res = getExportResolution(cfg.exportResolution);
+
+        if (cfg.exportMode === 'frame') {
+          void startFrameRender(cfg, sceneMeta.name);
+          return;
+        }
 
         try {
+          rt.setOutputSize(res.width, res.height);
           if (rt.audio) {
             rt.audio.seekTo(0);
             rt.audio.syncPlayback({
@@ -242,6 +314,9 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
             duration: cfg.duration,
             sceneName: sceneMeta.name,
             audioTrack,
+            width: res.width,
+            height: res.height,
+            videoBitsPerSecond: res.bitrate[cfg.fps],
           });
           rt.recordingSession = session;
           rt.isRecording = true;
@@ -251,6 +326,7 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
           callbacksRef.current.onPlayingChange(true);
           callbacksRef.current.onRecordingStateChange(true, 0);
         } catch (err) {
+          rt.restoreViewportSize();
           callbacksRef.current.onError(
             err instanceof Error ? err.message : 'Failed to start video recording.',
           );
@@ -258,10 +334,15 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
       },
       cancelRecording: () => {
         const rt = runtimeRef.current;
+        if (rt.offlineRendering) {
+          rt.offlineCancel = true;
+          return;
+        }
         if (!rt.isRecording || !rt.recordingSession) return;
         rt.recordingSession.cancel();
         rt.recordingSession = null;
         rt.isRecording = false;
+        rt.restoreViewportSize();
         callbacksRef.current.onRecordingStateChange(false, 0);
       },
       resetCamera: () => {
@@ -393,6 +474,8 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
       renderer.domElement.style.display = 'block';
       renderer.domElement.style.width = '100%';
       renderer.domElement.style.height = '100%';
+      // Keep the preview undistorted while rendering at a fixed export aspect ratio
+      renderer.domElement.style.objectFit = 'contain';
 
       container.appendChild(renderer.domElement);
 
@@ -591,7 +674,7 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
 
       // Handle viewport resize cleanly
       const handleResize = () => {
-        if (!container) return;
+        if (!container || rt.fixedOutputSize) return;
         const w = container.clientWidth || window.innerWidth;
         const h = container.clientHeight || window.innerHeight;
         camera.aspect = w / h;
@@ -608,6 +691,30 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
         }
       };
       window.addEventListener('resize', handleResize);
+
+      // Lock the drawing buffer to an exact export resolution (e.g. 3840×2160) at 1:1 pixels,
+      // independent of the browser window size. The on-screen canvas is just scaled down.
+      const viewportPixelRatio = () =>
+        isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2);
+      rt.setOutputSize = (w: number, h: number) => {
+        rt.fixedOutputSize = true;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setPixelRatio(1);
+        renderer.setSize(w, h, false);
+        if (composer) {
+          composer.setPixelRatio(1);
+          composer.setSize(w, h);
+        }
+      };
+      rt.restoreViewportSize = () => {
+        if (!rt.fixedOutputSize) return;
+        rt.fixedOutputSize = false;
+        const pr = viewportPixelRatio();
+        renderer.setPixelRatio(pr);
+        if (composer) composer.setPixelRatio(pr);
+        handleResize();
+      };
 
       // Camera choreography evaluator (calm, wide panoramic shots + motivated 3-point lighting across 0-60s)
       const _skyNight = new THREE.Color(0x18243c);
@@ -1479,7 +1586,7 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
           );
         }
 
-        const lambda = rt.isRecording ? 12 : 6.0;
+        const lambda = rt.isRecording || rt.offlineRendering ? 12 : 6.0;
         camera.position.x = THREE.MathUtils.damp(
           camera.position.x,
           _desiredCamPos.x,
@@ -1524,6 +1631,79 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
         camera.lookAt(controls.target);
       };
 
+      // Frame-by-frame offline export: steps the timeline exactly 1/fps per frame
+      rt.renderOffline = async (fileHandle: FileSystemFileHandle | null) => {
+        if (rt.offlineRendering || rt.isRecording) return;
+        const cfg = { ...configRef.current };
+        const res = getExportResolution(cfg.exportResolution);
+        const sceneMeta =
+          SCENE_PRESETS.find((s) => s.id === cfg.sceneId) ?? SCENE_PRESETS[0];
+
+        rt.offlineRendering = true;
+        rt.offlineCancel = false;
+        audio.syncPlayback({
+          playing: false,
+          enabled: cfg.audioEnabled,
+          timelineTime: 0,
+          speed: 1,
+        });
+        callbacksRef.current.onPlayingChange(false);
+        callbacksRef.current.onRecordingStateChange(true, 0, 'Preparing encoder…');
+        rt.setOutputSize(res.width, res.height);
+
+        try {
+          const video = await renderVideoOffline({
+            webglCanvas: renderer.domElement,
+            width: res.width,
+            height: res.height,
+            fps: cfg.fps,
+            duration: cfg.duration,
+            bitrate: res.bitrate[cfg.fps],
+            sceneName: sceneMeta.name,
+            audioUrl: cfg.audioEnabled ? voUrlRef.current : null,
+            fileHandle,
+            renderFrameAt: (t, dt) => {
+              timeRef.current = t;
+              updateCameraChoreography(t, cfg.duration, dt, cfg.cameraShot, cfg.sceneId);
+              rt.activeScene?.update(
+                t,
+                cfg.duration,
+                cfg.motionIntensity,
+                cfg.explodeAmount,
+                camera.position,
+              );
+              renderFrame();
+            },
+            getSubtitle: (t) =>
+              cfg.subtitlesEnabled
+                ? (getActiveCue(srtCuesRef.current, t)?.text ?? null)
+                : null,
+            onProgress: (p) => {
+              const pct = (p.frame / p.totalFrames) * 100;
+              callbacksRef.current.onTimeUpdate((p.frame / p.totalFrames) * cfg.duration);
+              callbacksRef.current.onRecordingStateChange(
+                true,
+                pct,
+                `${res.label} ${cfg.fps}fps · frame ${p.frame.toLocaleString()}/${p.totalFrames.toLocaleString()} · ${p.renderFps.toFixed(1)} fps · ${formatEta(p.etaSeconds)} left · ${p.encoderLabel}`,
+              );
+            },
+            isCancelled: () => rt.offlineCancel || disposed,
+          });
+          callbacksRef.current.onRecordingStateChange(false, 100);
+          callbacksRef.current.onVideoReady(video);
+        } catch (err) {
+          callbacksRef.current.onRecordingStateChange(false, 0);
+          if (!(err instanceof RenderCancelledError)) {
+            callbacksRef.current.onError(
+              err instanceof Error ? `Export failed: ${err.message}` : 'Export failed.',
+            );
+          }
+        } finally {
+          rt.offlineRendering = false;
+          rt.restoreViewportSize();
+        }
+      };
+
       // Animation loop with software WebGL pacing guard
       let frameId = 0;
       let disposed = false;
@@ -1556,6 +1736,12 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
         const now = performance.now();
         const rawDelta = Math.min(0.1, (now - lastWallTime) / 1000);
         lastWallTime = now;
+
+        // The offline renderer drives the scene itself; keep the live loop idle meanwhile
+        if (rt.offlineRendering) {
+          frameId = requestAnimationFrame(tick);
+          return;
+        }
 
         const cfg = configRef.current;
         let t = timeRef.current;
@@ -1631,6 +1817,7 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
             const session = rt.recordingSession;
             rt.isRecording = false;
             rt.recordingSession = null;
+            rt.restoreViewportSize();
             callbacksRef.current.onTimeUpdate(cfg.duration);
             callbacksRef.current.onRecordingStateChange(false, 100);
             callbacksRef.current.onPlayingChange(false);
@@ -1658,6 +1845,7 @@ export const ViewportCanvas = forwardRef<ViewportHandle, ViewportCanvasProps>(
 
       return () => {
         disposed = true;
+        rt.offlineCancel = true;
         cancelAnimationFrame(frameId);
         clearTimeout(frameId);
         window.removeEventListener('resize', handleResize);

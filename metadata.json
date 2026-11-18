@@ -1,0 +1,6 @@
+{
+  "name": "Kinetic 3D Video Studio",
+  "description": "Interactive Three.js 3D animation director, keyframe timeline, and real-time WebGL video exporter.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
